@@ -9,6 +9,8 @@ import 'package:intl/intl.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations(
+      [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]);
   runApp(const EnCuentoQuedaApp());
 }
 
@@ -53,9 +55,12 @@ class DatabaseHelper {
 
   Future<void> insertPercentage(int v) async {
     final db = await database;
-    await db.insert(tablePorcentajes, {
-      'valor': v,
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    await db.insert(
+        tablePorcentajes,
+        {
+          'valor': v,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   Future<List<int>> getAllPercentages() async {
@@ -80,7 +85,8 @@ class DatabaseHelper {
     }
   }
 
-  Future<void> insertOffer(double orig, int pct, double res, double save) async {
+  Future<void> insertOffer(
+      double orig, int pct, double res, double save) async {
     final db = await database;
     await db.insert(tableOfertas, {
       'precio_original': orig,
@@ -105,9 +111,10 @@ class DatabaseHelper {
 // --- APP ---
 class EnCuentoQuedaApp extends StatelessWidget {
   const EnCuentoQuedaApp({super.key});
-  static const Color colorPrimario = Color(0xFFC06500); // El naranja profundo de la izquierda
+  static const Color colorPrimario =
+      Color(0xFFC06500); // El naranja profundo de la izquierda
   static const Color colorAcento = Color(0xFFFF9800);
- @override
+  @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -117,7 +124,8 @@ class EnCuentoQuedaApp extends StatelessWidget {
           seedColor: colorPrimario,
           primary: colorPrimario,
           secondary: colorAcento,
-          surface: const Color(0xFFFFF8F1), // Un blanco hueso muy suave para el fondo
+          surface: const Color(
+              0xFFFFF8F1), // Un blanco hueso muy suave para el fondo
         ),
         useMaterial3: true,
         // Estilización global del AppBar para que coincida con tu diseño
@@ -177,7 +185,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _scrollToIndex(int index, BuildContext context) {
     if (!_scrollController.hasClients) return;
-    const double itemWidth = 80.0; 
+    const double itemWidth = 80.0;
     final double screenWidth = MediaQuery.of(context).size.width;
     double offset = (index * itemWidth) - (screenWidth / 2) + (itemWidth / 2);
     if (offset < 0) offset = 0;
@@ -191,95 +199,96 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
- Future<void> _checkPermissions() async {
-  var status = await Permission.camera.status;
+  Future<void> _checkPermissions() async {
+    var status = await Permission.camera.status;
 
-  // Si el usuario marcó "No volver a preguntar"
-  if (status.isPermanentlyDenied) {
-    openAppSettings(); // Abre la configuración del celular para habilitar manual
-    return;
-  }
-
-  // Intento de solicitud estándar
-  if (await Permission.camera.request().isGranted) {
-    final cameras = await availableCameras();
-    if (cameras.isNotEmpty) {
-      _cameraController = CameraController(
-        cameras[0],
-        ResolutionPreset.medium,
-        enableAudio: false,
-      );
-      await _cameraController?.initialize();
-      if (mounted) setState(() => _isCameraReady = true);
+    // Si el usuario marcó "No volver a preguntar"
+    if (status.isPermanentlyDenied) {
+      openAppSettings(); // Abre la configuración del celular para habilitar manual
+      return;
     }
-  } else {
-    // Si vuelve a denegar, nos aseguramos que el estado refleje que no está lista
-    if (mounted) setState(() => _isCameraReady = false);
+
+    // Intento de solicitud estándar
+    if (await Permission.camera.request().isGranted) {
+      final cameras = await availableCameras();
+      if (cameras.isNotEmpty) {
+        _cameraController = CameraController(
+          cameras[0],
+          ResolutionPreset.medium,
+          enableAudio: false,
+        );
+        await _cameraController?.initialize();
+        if (mounted) setState(() => _isCameraReady = true);
+      }
+    } else {
+      // Si vuelve a denegar, nos aseguramos que el estado refleje que no está lista
+      if (mounted) setState(() => _isCameraReady = false);
+    }
   }
-}
+
   Future<void> _loadPorcentajes() async {
     final data = await _db.getAllPercentages();
     if (mounted) setState(() => _porcentajes = data);
   }
 
-void _calculate() {
-  // PASO 1: SANITIZACIÓN CRÍTICA PARA CLP
-  // Obtenemos el texto del controlador. Si el usuario ingresó puntos (ej: "29.990"),
-  // los eliminamos para que el sistema entienda que es "29990" y no "29 coma 990".
-  String cleanText = _priceController.text.replaceAll('.', '');
+  void _calculate() {
+    // PASO 1: SANITIZACIÓN CRÍTICA PARA CLP
+    // Obtenemos el texto del controlador. Si el usuario ingresó puntos (ej: "29.990"),
+    // los eliminamos para que el sistema entienda que es "29990" y no "29 coma 990".
+    String cleanText = _priceController.text.replaceAll('.', '');
 
-  // PASO 2: PARSEO SEGURO
-  // Ahora convertimos la cadena limpia a un número decimal.
-  double original = double.tryParse(cleanText) ?? 0.0;
+    // PASO 2: PARSEO SEGURO
+    // Ahora convertimos la cadena limpia a un número decimal.
+    double original = double.tryParse(cleanText) ?? 0.0;
 
-  // Límites de negocio (Legacy preservado)
-  if (original < 0) original = 0;
-  if (original > 100000000) original = 100000000;
+    // Límites de negocio (Legacy preservado)
+    if (original < 0) original = 0;
+    if (original > 100000000) original = 100000000;
 
-  if (_selectedPct != null) {
-    setState(() {
-      // PASO 3: CORRECCIÓN MATEMÁTICA (El arreglo del peso extra)
+    if (_selectedPct != null) {
+      setState(() {
+        // PASO 3: CORRECCIÓN MATEMÁTICA (El arreglo del peso extra)
 
-      // a) Calculamos el monto matemático exacto del descuento
-      // Ej: 29990 * 15 / 100 = 4498.5
-      double exactDiscountAmount = original * _selectedPct! / 100;
+        // a) Calculamos el monto matemático exacto del descuento
+        // Ej: 29990 * 15 / 100 = 4498.5
+        double exactDiscountAmount = original * _selectedPct! / 100;
 
-      // b) FIX QUIRÚRGICO: Redondeamos el ahorro al entero más cercano PRIMERO.
-      // Usamos .roundToDouble() para aplicar el redondeo estándar (ej: 4498.5 -> 4499.0)
-      // Esta se convierte en nuestra "fuente de la verdad" para el ahorro.
-      _savings = exactDiscountAmount.roundToDouble();
+        // b) FIX QUIRÚRGICO: Redondeamos el ahorro al entero más cercano PRIMERO.
+        // Usamos .roundToDouble() para aplicar el redondeo estándar (ej: 4498.5 -> 4499.0)
+        // Esta se convierte en nuestra "fuente de la verdad" para el ahorro.
+        _savings = exactDiscountAmount.roundToDouble();
 
-      // c) Calculamos el precio final basándonos en el ahorro ya redondeado.
-      // Esto garantiza matemáticamente que: Final + Ahorro = Original.
-      // Ej: 29990 - 4499 = 25491
-      _finalPrice = original - _savings;
-    });
+        // c) Calculamos el precio final basándonos en el ahorro ya redondeado.
+        // Esto garantiza matemáticamente que: Final + Ahorro = Original.
+        // Ej: 29990 - 4499 = 25491
+        _finalPrice = original - _savings;
+      });
+    }
   }
-}
-
-
-
-
 
   Future<void> _scanPrice(BuildContext context) async {
+    if (!_isCameraReady ||
+        _cameraController == null ||
+        !_cameraController!.value.isInitialized) {
+      // Si no está lista, enviamos el mensaje al usuario
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              "Cámara no disponible. Por favor, otorga los permisos en el visor superior."),
+          backgroundColor: Colors.redAccent,
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating, // Se ve más moderno
+        ),
+      );
+      return; // Abortamos la ejecución quirúrgicamente
+    }
 
-    if (!_isCameraReady || _cameraController == null || !_cameraController!.value.isInitialized) {
-    // Si no está lista, enviamos el mensaje al usuario
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Cámara no disponible. Por favor, otorga los permisos en el visor superior."),
-        backgroundColor: Colors.redAccent,
-        duration: Duration(seconds: 3),
-        behavior: SnackBarBehavior.floating, // Se ve más moderno
-      ),
-    );
-    return; // Abortamos la ejecución quirúrgicamente
-  }
-
-    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+    if (_cameraController == null || !_cameraController!.value.isInitialized)
+      return;
     try {
       final image = await _cameraController!.takePicture();
-      final recognizedText = await _textRecognizer.processImage(InputImage.fromFilePath(image.path));
+      final recognizedText = await _textRecognizer
+          .processImage(InputImage.fromFilePath(image.path));
       RegExp regExp = RegExp(r"\$\s*(\d+[\.,]?\d*)|(\d+[\.,]?\d*)\s*\$");
       var match = regExp.firstMatch(recognizedText.text);
       if (match != null && mounted) {
@@ -287,30 +296,42 @@ void _calculate() {
         int parsedPrice = int.tryParse(rawNumbers) ?? 0;
         if (parsedPrice > 100000000) parsedPrice = 100000000;
         setState(() {
-    _priceController.text = NumberFormat.currency(locale: 'es_CL', symbol: '', decimalDigits: 0).format(parsedPrice).trim();
-  _successHighlight = true;
+          _priceController.text = NumberFormat.currency(
+                  locale: 'es_CL', symbol: '', decimalDigits: 0)
+              .format(parsedPrice)
+              .trim();
+          _successHighlight = true;
         });
-        Future.delayed(const Duration(seconds: 2), () => setState(() => _successHighlight = false));
+        Future.delayed(const Duration(seconds: 2),
+            () => setState(() => _successHighlight = false));
       } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No se pudo capturar el precio"), backgroundColor: Colors.orange));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text("No se pudo capturar el precio"),
+              backgroundColor: Colors.orange));
       }
-    } catch (e) { debugPrint("OCR Error: $e"); }
+    } catch (e) {
+      debugPrint("OCR Error: $e");
+    }
   }
-
 
   @override
   Widget build(BuildContext context) {
-    final clpFormater = NumberFormat.currency(locale: 'es_CL', symbol: '', decimalDigits: 0);
+    final clpFormater =
+        NumberFormat.currency(locale: 'es_CL', symbol: '', decimalDigits: 0);
     final size = MediaQuery.of(context).size;
-
-
 
     return Scaffold(
       // FIX QUIRÚRGICO: Mantiene la UI estable cuando sube el teclado
-      resizeToAvoidBottomInset: false, 
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text("EnCuantoQueda 1.0",style: TextStyle(color: Colors.white),), centerTitle: true, backgroundColor:EnCuentoQuedaApp.colorPrimario),
+          iconTheme: const IconThemeData(color: Colors.white),
+          title: const Text(
+            "EnCuantoQueda 1.0",
+            style: TextStyle(color: Colors.white),
+          ),
+          centerTitle: true,
+          backgroundColor: EnCuentoQuedaApp.colorPrimario),
       drawer: _buildDrawer(context),
       body: SafeArea(
         child: Column(
@@ -323,7 +344,10 @@ void _calculate() {
               alignment: Alignment.center,
               child: const Text(
                 "Escanea el precio",
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold),
               ),
             ),
 
@@ -345,15 +369,29 @@ void _calculate() {
                       const SizedBox(height: 25),
                       _buildInputPrecio(),
                       const SizedBox(height: 25),
-                      Text("Selecciona el % de descuento:", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[700])),
+                      Text("Selecciona el % de descuento:",
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey[700])),
                       const SizedBox(height: 10),
                       _buildCarrusel(context),
                       const SizedBox(height: 25),
                       if (_selectedPct != null) ...[
-                        Text("Precio Final: \$ ${clpFormater.format(_finalPrice)}", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.green)),
-                        Text("Ahorro: \$${clpFormater.format(_savings)}", style: const TextStyle(fontSize: 18, color: Colors.blueGrey)),
+                        Text(
+                            "Precio Final: \$ ${clpFormater.format(_finalPrice)}",
+                            style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green)),
+                        Text("Ahorro: \$${clpFormater.format(_savings)}",
+                            style: const TextStyle(
+                                fontSize: 18, color: Colors.blueGrey)),
                         const SizedBox(height: 20),
-                        ElevatedButton.icon(onPressed: () => _saveOffer(context), icon: const Icon(Icons.save), label: const Text("GUARDAR DESCUENTO")),
+                        ElevatedButton.icon(
+                            onPressed: () => _saveOffer(context),
+                            icon: const Icon(Icons.save),
+                            label: const Text("GUARDAR DESCUENTO")),
                       ],
                     ],
                   ),
@@ -377,47 +415,56 @@ void _calculate() {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.indigo.shade100, width: 1.5),
-          boxShadow: [BoxShadow(color: Colors.indigo.withOpacity(0.15), blurRadius: 15, offset: const Offset(0, 8), spreadRadius: 1)],
+          boxShadow: [
+            BoxShadow(
+                color: Colors.indigo.withOpacity(0.15),
+                blurRadius: 15,
+                offset: const Offset(0, 8),
+                spreadRadius: 1)
+          ],
         ),
         child: Row(
           children: [
-           // Lado izquierdo: Cámara con su propio recorte redondeado
-SizedBox(
-  width: (size.width * 0.9) * 0.75,
-  child: ClipRRect(
-    borderRadius: const BorderRadius.only(
-      topLeft: Radius.circular(16),
-      bottomLeft: Radius.circular(16),
-    ),
-    child: _isCameraReady
-        ? CameraPreview(_cameraController!)
-        : Container(
-            color: Colors.blueGrey[900],
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.videocam_off_outlined, color: Colors.white54, size: 40),
-                const SizedBox(height: 8),
-                const Text(
-                  "Cámara deshabilitada",
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
+            // Lado izquierdo: Cámara con su propio recorte redondeado
+            SizedBox(
+              width: (size.width * 0.9) * 0.75,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  bottomLeft: Radius.circular(16),
                 ),
-                TextButton(
-                  onPressed: _checkPermissions, // Re-lanza la solicitud
-                  child: const Text(
-                    "OTORGAR PERMISOS",
-                    style: TextStyle(
-                      color: Colors.blueAccent,
-                      fontWeight: FontWeight.bold,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ),
-              ],
+                child: _isCameraReady
+                    ? CameraPreview(_cameraController!)
+                    : Container(
+                        color: Colors.blueGrey[900],
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.videocam_off_outlined,
+                                color: Colors.white54, size: 40),
+                            const SizedBox(height: 8),
+                            const Text(
+                              "Cámara deshabilitada",
+                              style: TextStyle(
+                                  color: Colors.white70, fontSize: 12),
+                            ),
+                            TextButton(
+                              onPressed:
+                                  _checkPermissions, // Re-lanza la solicitud
+                              child: const Text(
+                                "OTORGAR PERMISOS",
+                                style: TextStyle(
+                                  color: Colors.blueAccent,
+                                  fontWeight: FontWeight.bold,
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+              ),
             ),
-          ),
-  ),
-),
             Expanded(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -427,8 +474,18 @@ SizedBox(
                     child: RotatedBox(
                       quarterTurns: 3,
                       child: SliderTheme(
-                        data: SliderThemeData(activeTrackColor: Colors.indigo[700], inactiveTrackColor: Colors.indigo[100], thumbColor: Colors.indigo),
-                        child: Slider(value: _currentZoom, min: 1.0, max: 8.0, onChanged: (v) { setState(() => _currentZoom = v); _cameraController?.setZoomLevel(v); }),
+                        data: SliderThemeData(
+                            activeTrackColor: Colors.indigo[700],
+                            inactiveTrackColor: Colors.indigo[100],
+                            thumbColor: Colors.indigo),
+                        child: Slider(
+                            value: _currentZoom,
+                            min: 1.0,
+                            max: 8.0,
+                            onChanged: (v) {
+                              setState(() => _currentZoom = v);
+                              _cameraController?.setZoomLevel(v);
+                            }),
                       ),
                     ),
                   ),
@@ -449,17 +506,38 @@ SizedBox(
         controller: _priceController,
         keyboardType: TextInputType.number,
         inputFormatters: [ClpInputFormatter()],
-        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF2D3142)),
+        style: const TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF2D3142)),
         decoration: InputDecoration(
           labelText: "Precio del producto",
           prefixText: "\$ ",
-          prefixStyle: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: const Color.fromARGB(255, 33, 34, 34)),
-          suffixIcon: IconButton(icon: const Icon(Icons.close, size: 28, color: Colors.orange, ), onPressed: () => _priceController.clear()),
+          prefixStyle: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              color: const Color.fromARGB(255, 33, 34, 34)),
+          suffixIcon: IconButton(
+              icon: const Icon(
+                Icons.close,
+                size: 28,
+                color: Colors.orange,
+              ),
+              onPressed: () => _priceController.clear()),
           filled: true,
           fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide(color: _successHighlight ? Colors.green : Colors.orange.withOpacity(0.2), width: _successHighlight ? 3 : 1.5)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: Colors.orange, width: 2)),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(30),
+              borderSide: BorderSide(
+                  color: _successHighlight
+                      ? Colors.green
+                      : Colors.orange.withOpacity(0.2),
+                  width: _successHighlight ? 3 : 1.5)),
+          focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(30),
+              borderSide: const BorderSide(color: Colors.orange, width: 2)),
           floatingLabelBehavior: FloatingLabelBehavior.always,
         ),
       ),
@@ -505,75 +583,107 @@ SizedBox(
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: isSelected ? const Color(0xFF2ECC71) : Colors.blue,
-          border: isSelected ? Border.all(color: Colors.white.withOpacity(0.6), width: 4) : null,
-          boxShadow: [BoxShadow(color: isSelected ? const Color(0xFF2ECC71).withOpacity(0.4) : Colors.transparent, blurRadius: 15.0, spreadRadius: isSelected ? 2.0 : 0.0)],
+          border: isSelected
+              ? Border.all(color: Colors.white.withOpacity(0.6), width: 4)
+              : null,
+          boxShadow: [
+            BoxShadow(
+                color: isSelected
+                    ? const Color(0xFF2ECC71).withOpacity(0.4)
+                    : Colors.transparent,
+                blurRadius: 15.0,
+                spreadRadius: isSelected ? 2.0 : 0.0)
+          ],
         ),
-        child: Text("$pct%", style: TextStyle(color: Colors.white, fontSize: isSelected ? 22 : 16, fontWeight: FontWeight.bold)),
+        child: Text("$pct%",
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: isSelected ? 22 : 16,
+                fontWeight: FontWeight.bold)),
       ),
     );
   }
 
- Future<void> _saveOffer(BuildContext context) async {
-  // 1. Obtenemos el texto y limpiamos espacios
-  final String rawText = _priceController.text.trim();
+  Future<void> _saveOffer(BuildContext context) async {
+    // 1. Obtenemos el texto y limpiamos espacios
+    final String rawText = _priceController.text.trim();
 
-  // 2. Validación de presencia
-  if (rawText.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Ingresa un precio primero"), backgroundColor: Colors.redAccent)
-    );
-    return;
+    // 2. Validación de presencia
+    if (rawText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Ingresa un precio primero"),
+          backgroundColor: Colors.redAccent));
+      return;
+    }
+
+    // 3. LIMPIEZA QUIRÚRGICA: Eliminamos los puntos de miles antes de parsear
+    // Esto permite que "2.222.222" pase a ser "2222222"
+    final String cleanText = rawText.replaceAll('.', '');
+    final double? original = double.tryParse(cleanText);
+
+    // 4. Validación de selección de porcentaje
+    if (_selectedPct == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Selecciona un descuento"),
+          backgroundColor: Colors.orange));
+      return;
+    }
+
+    // 5. Persistencia si el número es válido
+    if (original != null && original > 0) {
+      await _db.insertOffer(original, _selectedPct!, _finalPrice, _savings);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("¡Descuento guardado!")));
+    } else {
+      // Si llegara a fallar el parseo por alguna razón, ahora sí damos feedback
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Error: El formato del precio no es válido"),
+          backgroundColor: Colors.red));
+    }
   }
-
-  // 3. LIMPIEZA QUIRÚRGICA: Eliminamos los puntos de miles antes de parsear
-  // Esto permite que "2.222.222" pase a ser "2222222"
-  final String cleanText = rawText.replaceAll('.', '');
-  final double? original = double.tryParse(cleanText);
-
-  // 4. Validación de selección de porcentaje
-  if (_selectedPct == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Selecciona un descuento"), backgroundColor: Colors.orange)
-    );
-    return;
-  }
-
-  // 5. Persistencia si el número es válido
-  if (original != null && original > 0) {
-    await _db.insertOffer(
-      original, 
-      _selectedPct!, 
-      _finalPrice, 
-      _savings
-    );
-
-    if (!mounted) return;
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("¡Descuento guardado!"))
-    );
-  } else {
-    // Si llegara a fallar el parseo por alguna razón, ahora sí damos feedback
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Error: El formato del precio no es válido"), backgroundColor: Colors.red)
-    );
-  }
-}
 
   Widget _buildDrawer(BuildContext context) {
     return Drawer(
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
-          const DrawerHeader(decoration: BoxDecoration(color: EnCuentoQuedaApp.colorPrimario), child: Column(
-            children: [
-              Center(child: Text("EnCuantoQueda 1.0", style: TextStyle(color: Colors.white, fontSize: 24))),
-              SizedBox(height: 10),
-              Center(child: Text("Calcula y guarda tus descuentos fácilmente. By @chalalo", style: TextStyle(color: Colors.white, fontSize: 14)))
-            ],
-          )),
-          ListTile(leading: const Icon(Icons.save), title: const Text("Ofertas Guardadas"), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (c) => const SavedOffersScreen())); }),
-          ListTile(leading: const Icon(Icons.settings), title: const Text("Gestionar Porcentajes"), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (c) => const PercentagesScreen())); }),
+          const DrawerHeader(
+              decoration: BoxDecoration(color: EnCuentoQuedaApp.colorPrimario),
+              child: Column(
+                children: [
+                  Center(
+                      child: Text("EnCuantoQueda 1.0",
+                          style: TextStyle(color: Colors.white, fontSize: 24))),
+                  SizedBox(height: 10),
+                  Center(
+                      child: Text(
+                          "Calcula y guarda tus descuentos fácilmente. By @chalalo",
+                          style: TextStyle(color: Colors.white, fontSize: 14)))
+                ],
+              )),
+          ListTile(
+              leading: const Icon(Icons.save),
+              title: const Text("Ofertas Guardadas"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (c) => const SavedOffersScreen()));
+              }),
+          ListTile(
+              leading: const Icon(Icons.settings),
+              title: const Text("Gestionar Porcentajes"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (c) => const PercentagesScreen()));
+              }),
         ],
       ),
     );
@@ -582,29 +692,46 @@ SizedBox(
   Widget _buildAddBtn(BuildContext context) {
     return InkWell(
       onTap: () => _showAddDialog(context),
-      child: Container(width: 60, margin: const EdgeInsets.symmetric(horizontal: 6), decoration: BoxDecoration(border: Border.all(color: Colors.blue, width: 2), shape: BoxShape.circle), child: const Icon(Icons.add, color: Colors.blue)),
+      child: Container(
+          width: 60,
+          margin: const EdgeInsets.symmetric(horizontal: 6),
+          decoration: BoxDecoration(
+              border: Border.all(color: Colors.blue, width: 2),
+              shape: BoxShape.circle),
+          child: const Icon(Icons.add, color: Colors.blue)),
     );
   }
 
   void _showAddDialog(BuildContext context) {
     final c = TextEditingController();
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text("Nuevo %"),
-      content: TextField(controller: c, keyboardType: TextInputType.number, decoration: const InputDecoration(hintText: "Rango 0-100")),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCELAR")),
-        TextButton(onPressed: () async {
-          int? val = int.tryParse(c.text);
-          if (val != null && val >= 0 && val <= 100) {
-            await _db.insertPercentage(val);
-            _loadPorcentajes();
-            Navigator.pop(ctx);
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Porcentaje inválido (0-100)")));
-          }
-        }, child: const Text("OK")),
-      ],
-    ));
+    showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+              title: const Text("Nuevo %"),
+              content: TextField(
+                  controller: c,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(hintText: "Rango 0-100")),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text("CANCELAR")),
+                TextButton(
+                    onPressed: () async {
+                      int? val = int.tryParse(c.text);
+                      if (val != null && val >= 0 && val <= 100) {
+                        await _db.insertPercentage(val);
+                        _loadPorcentajes();
+                        Navigator.pop(ctx);
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text("Porcentaje inválido (0-100)")));
+                      }
+                    },
+                    child: const Text("OK")),
+              ],
+            ));
   }
 }
 
@@ -621,111 +748,163 @@ class _SavedOffersScreenState extends State<SavedOffersScreen> {
   List<Map<String, dynamic>> _offers = [];
 
   @override
-  void initState() { super.initState(); _refresh(); }
-  void _refresh() async { final data = await _db.getAllOffers(); setState(() => _offers = data); }
+  void initState() {
+    super.initState();
+    _refresh();
+  }
 
-@override
-Widget build(BuildContext context) {
-  // AJUSTE QUIRÚRGICO: Quitamos el símbolo del formateador para controlarlo manualmente
-  final clp = NumberFormat.currency(locale: 'es_CL', symbol: '', decimalDigits: 0);
+  void _refresh() async {
+    final data = await _db.getAllOffers();
+    setState(() => _offers = data);
+  }
 
-  return Scaffold(
-    appBar: AppBar(
-      iconTheme: const IconThemeData(color: Colors.white),
-      title: const Text("Ofertas Guardadas", style: TextStyle(color: Colors.white)),
-      centerTitle: true,
-      backgroundColor: EnCuentoQuedaApp.colorPrimario,
-    ),
-    body: _offers.isEmpty 
-      ? const Center(child: Text("No hay ofertas guardadas.")) 
-      : ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          itemCount: _offers.length,
-          itemBuilder: (ctx, i) {
-            final o = _offers[i];
-            return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
-                ],
-              ),
-              child: IntrinsicHeight(
-                child: Row(
-                  children: [
-                    Container(
-                      width: 6,
-                      decoration: const BoxDecoration(
-                        color: EnCuentoQuedaApp.colorPrimario,
-                        borderRadius: BorderRadius.only(topLeft: Radius.circular(12), bottomLeft: Radius.circular(12)),
-                      ),
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                // FIX: Símbolo $ a la izquierda del número
-                                Text(
-                                  "Final: \$ ${clp.format(o['precio_final']).trim()}",
-                                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(20)),
-                                  child: Text("${o['porcentaje']}% OFF", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12)),
-                                ),
-                              ],
-                            ),
-                            const Divider(height: 20),
-                            // FIX: Aplicamos el símbolo a la izquierda también en los detalles
-                            Text("Precio Original: \$ ${clp.format(o['precio_original']).trim()}", style: TextStyle(color: Colors.grey[800], fontSize: 14)),
-                            const SizedBox(height: 4),
-                            Text("Ahorro Real: \$ ${clp.format(o['ahorro']).trim()}", style: const TextStyle(color: EnCuentoQuedaApp.colorPrimario, fontWeight: FontWeight.bold, fontSize: 14)),
-                            const SizedBox(height: 12),
-                            // FIX: Fecha con contraste máximo (black87) para nitidez total
-                            Row(
-                              children: [
-                                Icon(Icons.access_time, size: 14, color: Colors.blueGrey[800]),
-                                const SizedBox(width: 6),
-                                Text(
-                                  o['fecha'], 
-                                  style: TextStyle(
-                                    color: Colors.black87, // Color sólido para evitar efecto borroso
-                                    fontSize: 13, 
-                                    fontWeight: FontWeight.w600, 
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+  @override
+  Widget build(BuildContext context) {
+    // AJUSTE QUIRÚRGICO: Quitamos el símbolo del formateador para controlarlo manualmente
+    final clp =
+        NumberFormat.currency(locale: 'es_CL', symbol: '', decimalDigits: 0);
+
+    return Scaffold(
+      appBar: AppBar(
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text("Ofertas Guardadas",
+            style: TextStyle(color: Colors.white)),
+        centerTitle: true,
+        backgroundColor: EnCuentoQuedaApp.colorPrimario,
+      ),
+      body: _offers.isEmpty
+          ? const Center(child: Text("No hay ofertas guardadas."))
+          : ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              itemCount: _offers.length,
+              itemBuilder: (ctx, i) {
+                final o = _offers[i];
+                return Container(
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4)),
+                    ],
+                  ),
+                  child: IntrinsicHeight(
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 6,
+                          decoration: const BoxDecoration(
+                            color: EnCuentoQuedaApp.colorPrimario,
+                            borderRadius: BorderRadius.only(
+                                topLeft: Radius.circular(12),
+                                bottomLeft: Radius.circular(12)),
+                          ),
                         ),
-                      ),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    // FIX: Símbolo $ a la izquierda del número
+                                    Text(
+                                      "Final: \$ ${clp.format(o['precio_final']).trim()}",
+                                      style: const TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.green),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                          color: Colors.green.shade50,
+                                          borderRadius:
+                                              BorderRadius.circular(20)),
+                                      child: Text("${o['porcentaje']}% OFF",
+                                          style: const TextStyle(
+                                              color: Colors.green,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 12)),
+                                    ),
+                                  ],
+                                ),
+                                const Divider(height: 20),
+                                // FIX: Aplicamos el símbolo a la izquierda también en los detalles
+                                Text(
+                                    "Precio Original: \$ ${clp.format(o['precio_original']).trim()}",
+                                    style: TextStyle(
+                                        color: Colors.grey[800], fontSize: 14)),
+                                const SizedBox(height: 4),
+                                Text(
+                                    "Ahorro Real: \$ ${clp.format(o['ahorro']).trim()}",
+                                    style: const TextStyle(
+                                        color: EnCuentoQuedaApp.colorPrimario,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14)),
+                                const SizedBox(height: 12),
+                                // FIX: Fecha con contraste máximo (black87) para nitidez total
+                                Row(
+                                  children: [
+                                    Icon(Icons.access_time,
+                                        size: 14, color: Colors.blueGrey[800]),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      o['fecha'],
+                                      style: TextStyle(
+                                        color: Colors
+                                            .black87, // Color sólido para evitar efecto borroso
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline,
+                              color: Colors.redAccent),
+                          onPressed: () => _confirmDelete(o['id'], context),
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                      onPressed: () => _confirmDelete(o['id'], context),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-  );
-}
+                  ),
+                );
+              },
+            ),
+    );
+  }
 
   void _confirmDelete(int id, BuildContext context) {
-    showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text("Confirmar"), content: const Text("¿Eliminar oferta?"), actions: [
-      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCELAR")),
-      TextButton(onPressed: () async { await _db.deleteOffer(id); _refresh(); Navigator.pop(ctx); }, child: const Text("ELIMINAR", style: TextStyle(color: Colors.red))),
-    ]));
+    showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+                title: const Text("Confirmar"),
+                content: const Text("¿Eliminar oferta?"),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text("CANCELAR")),
+                  TextButton(
+                      onPressed: () async {
+                        await _db.deleteOffer(id);
+                        _refresh();
+                        Navigator.pop(ctx);
+                      },
+                      child: const Text("ELIMINAR",
+                          style: TextStyle(color: Colors.red))),
+                ]));
   }
 }
 
@@ -739,68 +918,121 @@ class _PercentagesScreenState extends State<PercentagesScreen> {
   final DatabaseHelper _db = DatabaseHelper();
   List<int> _list = [];
   @override
-  void initState() { super.initState(); _refresh(); }
-  Future<void> _refresh() async { final data = await _db.getAllPercentages(); if (mounted) setState(() => _list = data); }
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final data = await _db.getAllPercentages();
+    if (mounted) setState(() => _list = data);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-
       //  appBar: AppBar(
       //   iconTheme: const IconThemeData(color: Colors.white),
       //   title: const Text("EnCuentoQueda 1.0",style: TextStyle(color: Colors.white),), centerTitle: true, backgroundColor:EnCuentoQuedaApp.colorPrimario),
       appBar: AppBar(
-         iconTheme: const IconThemeData(color: Colors.white),
-         backgroundColor:EnCuentoQuedaApp.colorPrimario,
-        title: const Text("Porcentajes",style: TextStyle(color: Colors.white)), actions: [
-        IconButton(icon: const Icon(Icons.add), onPressed: () => _showAddDialog(context)),
-        IconButton(icon: const Icon(Icons.restore), onPressed: () => _confirmRestore(context)),
-      ]),
-      body: ListView.builder(itemCount: _list.length, itemBuilder: (ctx, i) => ListTile(leading: const Icon(Icons.percent, color: Colors.orange), title: Text("${_list[i]}% de descuento"), trailing: IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _confirmDelete(_list[i], context)))),
+          iconTheme: const IconThemeData(color: Colors.white),
+          backgroundColor: EnCuentoQuedaApp.colorPrimario,
+          title:
+              const Text("Porcentajes", style: TextStyle(color: Colors.white)),
+          actions: [
+            IconButton(
+                icon: const Icon(Icons.add),
+                onPressed: () => _showAddDialog(context)),
+            IconButton(
+                icon: const Icon(Icons.restore),
+                onPressed: () => _confirmRestore(context)),
+          ]),
+      body: ListView.builder(
+          itemCount: _list.length,
+          itemBuilder: (ctx, i) => ListTile(
+              leading: const Icon(Icons.percent, color: Colors.orange),
+              title: Text("${_list[i]}% de descuento"),
+              trailing: IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: () => _confirmDelete(_list[i], context)))),
     );
   }
 
   void _confirmDelete(int val, BuildContext context) {
-    showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text("¿Eliminar?"), actions: [
-      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCELAR")),
-      TextButton(onPressed: () async { await _db.deletePercentage(val); _refresh(); Navigator.pop(ctx); }, child: const Text("SÍ")),
-    ]));
+    showDialog(
+        context: context,
+        builder: (ctx) =>
+            AlertDialog(title: const Text("¿Eliminar?"), actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text("CANCELAR")),
+              TextButton(
+                  onPressed: () async {
+                    await _db.deletePercentage(val);
+                    _refresh();
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text("SÍ")),
+            ]));
   }
 
   void _confirmRestore(BuildContext context) {
-    showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text("Restaurar"), actions: [
-      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("NO")),
-      TextButton(onPressed: () async { await _db.restoreDefaults(); _refresh(); Navigator.pop(ctx); }, child: const Text("SÍ")),
-    ]));
+    showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(title: const Text("Restaurar"), actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx), child: const Text("NO")),
+              TextButton(
+                  onPressed: () async {
+                    await _db.restoreDefaults();
+                    _refresh();
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text("SÍ")),
+            ]));
   }
 
   void _showAddDialog(BuildContext context) {
     final c = TextEditingController();
-    showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text("Nuevo %"), content: TextField(controller: c, keyboardType: TextInputType.number), actions: [
-      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCELAR")),
-      TextButton(onPressed: () async { await _db.insertPercentage(int.tryParse(c.text) ?? 0); _refresh(); Navigator.pop(ctx); }, child: const Text("OK")),
-    ]));
+    showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+                title: const Text("Nuevo %"),
+                content: TextField(
+                    controller: c, keyboardType: TextInputType.number),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text("CANCELAR")),
+                  TextButton(
+                      onPressed: () async {
+                        await _db.insertPercentage(int.tryParse(c.text) ?? 0);
+                        _refresh();
+                        Navigator.pop(ctx);
+                      },
+                      child: const Text("OK")),
+                ]));
   }
-
-
-  
 }
-
 
 class ClpInputFormatter extends TextInputFormatter {
   @override
-  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
     if (newValue.text.isEmpty) return newValue;
     // Eliminamos todo lo que no sea número
     String digits = newValue.text.replaceAll(RegExp(r'[^\d]'), '');
     int value = int.tryParse(digits) ?? 0;
-    
+
     // Aplicamos el límite de 100.000.000
     if (value > 100000000) value = 100000000;
-    
+
     // Formateamos con puntos
-    final String newText = NumberFormat.currency(locale: 'es_CL', symbol: '', decimalDigits: 0).format(value).trim();
-    
+    final String newText =
+        NumberFormat.currency(locale: 'es_CL', symbol: '', decimalDigits: 0)
+            .format(value)
+            .trim();
+
     return newValue.copyWith(
       text: newText,
       selection: TextSelection.collapsed(offset: newText.length),
