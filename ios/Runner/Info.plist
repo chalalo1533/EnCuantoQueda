@@ -2,10 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSCameraUsageDescription</key>
-	<string>Necesitamos acceso a la cámara para escanear los precios de los productos y calcular tu ahorro.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Necesitamos acceso para guardar o leer imágenes de precios si lo requieres.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
@@ -30,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Necesitamos acceso a la cámara para escanear los precios de los productos y calcular tu ahorro.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Necesitamos acceso para guardar o leer imágenes de precios si lo requieres.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
