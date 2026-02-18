@@ -147,15 +147,18 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final DatabaseHelper _db = DatabaseHelper();
   final TextEditingController _priceController = TextEditingController();
   final TextRecognizer _textRecognizer = TextRecognizer();
   final ScrollController _scrollController = ScrollController();
 
+  late AnimationController _scanAnimationController;
+  bool _isScanningAnim = false; // Estado para activar el láser visualmente
+
   CameraController? _cameraController;
   List<int> _porcentajes = [];
-  double _currentZoom = 1.0;
+  double _currentZoom = 5.0;
   int? _selectedPct;
   double _finalPrice = 0.0;
   double _savings = 0.0;
@@ -167,6 +170,16 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _initApp();
     _priceController.addListener(_calculate);
+    _scanAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          _scanAnimationController.reverse();
+        } else if (status == AnimationStatus.dismissed) {
+          _scanAnimationController.forward();
+        }
+      });
   }
 
   void _initApp() async {
@@ -180,6 +193,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _cameraController?.dispose();
     _textRecognizer.close();
     _priceController.dispose();
+    _scanAnimationController
+        .dispose(); // ¡Importante para evitar fugas de memoria!
     super.dispose();
   }
 
@@ -267,53 +282,77 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _scanPrice(BuildContext context) async {
-    if (!_isCameraReady ||
-        _cameraController == null ||
-        !_cameraController!.value.isInitialized) {
-      // Si no está lista, enviamos el mensaje al usuario
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              "Cámara no disponible. Por favor, otorga los permisos en el visor superior."),
-          backgroundColor: Colors.redAccent,
-          duration: Duration(seconds: 3),
-          behavior: SnackBarBehavior.floating, // Se ve más moderno
-        ),
-      );
-      return; // Abortamos la ejecución quirúrgicamente
+  // 1. Validaciones iniciales de cámara (Legacy preservado)
+  FocusScope.of(context).unfocus();
+  if (!_isCameraReady || _cameraController == null) return;
+
+  setState(() => _isScanningAnim = true);
+  _scanAnimationController.forward(from: 0.0);
+
+  try {
+    final image = await _cameraController!.takePicture();
+    final recognizedText = await _textRecognizer.processImage(InputImage.fromFilePath(image.path));
+    
+    // REGEX EQUILIBRADA: Busca números con formato de precio (punto de miles o 4+ dígitos)
+    RegExp priceRegExp = RegExp(r"\$?\s*(\d{1,3}(?:[\.,]\d{3})+(?:[\.,]\d+)?|\d{4,}(?:[\.,]\d+)?)\$?");
+    
+    String? bestCandidate;
+    double maxFontSize = 0;
+
+    for (TextBlock block in recognizedText.blocks) {
+      for (TextLine line in block.lines) {
+        if (priceRegExp.hasMatch(line.text)) {
+          double currentHeight = line.boundingBox.height;
+
+          // HEURÍSTICA DEL GIGANTE: Priorizamos la fuente más grande
+          if (currentHeight > maxFontSize) {
+            maxFontSize = currentHeight;
+            bestCandidate = line.text;
+          }
+        }
+      }
     }
 
-    if (_cameraController == null || !_cameraController!.value.isInitialized)
-      return;
-    try {
-      final image = await _cameraController!.takePicture();
-      final recognizedText = await _textRecognizer
-          .processImage(InputImage.fromFilePath(image.path));
-      RegExp regExp = RegExp(r"\$\s*(\d+[\.,]?\d*)|(\d+[\.,]?\d*)\s*\$");
-      var match = regExp.firstMatch(recognizedText.text);
-      if (match != null && mounted) {
-        String rawNumbers = match.group(0)!.replaceAll(RegExp(r'[^\d]'), '');
-        int parsedPrice = int.tryParse(rawNumbers) ?? 0;
-        if (parsedPrice > 100000000) parsedPrice = 100000000;
-        setState(() {
-          _priceController.text = NumberFormat.currency(
-                  locale: 'es_CL', symbol: '', decimalDigits: 0)
-              .format(parsedPrice)
-              .trim();
-          _successHighlight = true;
-        });
-        Future.delayed(const Duration(seconds: 2),
-            () => setState(() => _successHighlight = false));
-      } else {
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text("No se pudo capturar el precio"),
-              backgroundColor: Colors.orange));
+    // --- RAMA DE DECISIÓN CRÍTICA ---
+    if (bestCandidate != null && mounted) {
+      // CASO ÉXITO: Sonido y parseo
+      
+      String rawNumbers = bestCandidate.replaceAll(RegExp(r'[^\d]'), '');
+      int parsedPrice = int.tryParse(rawNumbers) ?? 0;
+      if (parsedPrice > 100000000) parsedPrice = 100000000;
+
+      setState(() {
+        _priceController.text = NumberFormat.currency(
+                locale: 'es_CL', symbol: '', decimalDigits: 0)
+            .format(parsedPrice)
+            .trim();
+        _successHighlight = true;
+      });
+      Future.delayed(const Duration(seconds: 2),
+          () => setState(() => _successHighlight = false));
+
+    } else {
+      // CASO FALLO: Aquí es donde restauramos el SnackBar que se había perdido
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("No se pudo capturar el precio principal. Intenta centrar la etiqueta o escríbela manualmente."),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
-    } catch (e) {
-      debugPrint("OCR Error: $e");
+    }
+  } catch (e) {
+    debugPrint("OCR Error: $e");
+  } finally {
+    // Siempre detenemos el láser, sea éxito o fallo
+    if (mounted) {
+      setState(() => _isScanningAnim = false);
+      _scanAnimationController.stop();
     }
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -321,84 +360,125 @@ class _HomeScreenState extends State<HomeScreen> {
         NumberFormat.currency(locale: 'es_CL', symbol: '', decimalDigits: 0);
     final size = MediaQuery.of(context).size;
 
-    return Scaffold(
-      // FIX QUIRÚRGICO: Mantiene la UI estable cuando sube el teclado
-      resizeToAvoidBottomInset: false,
-      appBar: AppBar(
-          iconTheme: const IconThemeData(color: Colors.white),
-          title: const Text(
-            "EnCuantoQueda 1.0",
-            style: TextStyle(color: Colors.white),
-          ),
-          centerTitle: true,
-          backgroundColor: EnCuentoQuedaApp.colorPrimario),
-      drawer: _buildDrawer(context),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // --- SECCIÓN FIJA (BANNER PUBLICITARIO) ---
-            Container(
-              height: 55,
-              width: double.infinity,
-              color: const Color.fromARGB(255, 212, 158, 77),
-              alignment: Alignment.center,
-              child: const Text(
-                "Escanea el precio",
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold),
-              ),
+    return GestureDetector(
+      onTap: () {
+      FocusScopeNode currentFocus = FocusScope.of(context);
+      if (!currentFocus.hasPrimaryFocus && currentFocus.focusedChild != null) {
+        FocusManager.instance.primaryFocus?.unfocus();
+      }
+    },
+      child: Scaffold(
+        // FIX QUIRÚRGICO: Mantiene la UI estable cuando sube el teclado
+        resizeToAvoidBottomInset: false,
+        appBar: AppBar(
+            iconTheme: const IconThemeData(color: Colors.white),
+            title: const Text(
+              "EnCuantoQueda 1.1",
+              style: TextStyle(color: Colors.white),
             ),
-
-            // --- SECCIÓN SCROLLABLE (CONTENIDO DINÁMICO) ---
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  child: Column(
-                    children: [
-                      _buildVisor(size),
-                      const SizedBox(height: 20),
-                      ElevatedButton.icon(
-                        onPressed: () => _scanPrice(context),
-                        icon: const Icon(Icons.document_scanner),
-                        label: const Text("CAPTURAR PRECIO (\$)"),
-                      ),
-                      const SizedBox(height: 25),
-                      _buildInputPrecio(),
-                      const SizedBox(height: 25),
-                      Text("Selecciona el % de descuento:",
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey[700])),
-                      const SizedBox(height: 10),
-                      _buildCarrusel(context),
-                      const SizedBox(height: 25),
-                      if (_selectedPct != null) ...[
-                        Text(
-                            "Precio Final: \$ ${clpFormater.format(_finalPrice)}",
-                            style: const TextStyle(
-                                fontSize: 24,
+            centerTitle: true,
+            backgroundColor: EnCuentoQuedaApp.colorPrimario),
+        drawer: _buildDrawer(context),
+        body: SafeArea(
+          child: Column(
+            children: [
+              // --- SECCIÓN FIJA (BANNER PUBLICITARIO) ---
+              Container(
+                height: 51,
+                width: double.infinity,
+                color: const Color.fromARGB(255, 212, 158, 77),
+                alignment: Alignment.center,
+                child: const Text(
+                  "Escanea el precio",
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold),
+                ),
+              ),
+      
+              // --- SECCIÓN SCROLLABLE (CONTENIDO DINÁMICO) ---
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Column(
+                      children: [
+                        _buildVisor(size),
+                        const SizedBox(height: 10),
+      
+                        _buildInputPrecio(),
+                        const SizedBox(height: 5),
+                        Text("Selecciona el % de descuento:",
+                            style: TextStyle(
+                                fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.green)),
-                        Text("Ahorro: \$${clpFormater.format(_savings)}",
-                            style: const TextStyle(
-                                fontSize: 18, color: Colors.blueGrey)),
-                        const SizedBox(height: 20),
-                        ElevatedButton.icon(
-                            onPressed: () => _saveOffer(context),
-                            icon: const Icon(Icons.save),
-                            label: const Text("GUARDAR DESCUENTO")),
+                                color: Colors.grey[700])),
+                        const SizedBox(height: 5),
+                        _buildCarrusel(context),
+      
+                        // Usamos un SizedBox para controlar el ancho de forma precisa
+                        SizedBox(
+                          width: MediaQuery.of(context).size.width *
+                              0.85, // Ocupa el 85% del ancho de la pantalla
+                          height:
+                              60, // Aumentamos la altura para que sea más fácil de tocar (Fitts's Law)
+                          child: ElevatedButton.icon(
+                            onPressed: () => _scanPrice(context),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor:
+                                  Colors.orange[700], // Fondo naranjo vibrante
+                              foregroundColor: Colors.white, // Letras blancas
+                              elevation:
+                                  6, // Sombra más profunda para dar relieve
+                              shadowColor: Colors.orange.withOpacity(0.5),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                    15), // Bordes redondeados modernos
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                            ),
+                            icon: const Icon(
+                              Icons.document_scanner_outlined,
+                              color: Colors.white,
+                              size: 28, // Icono más grande y visible
+                            ),
+                            label: const Text(
+                              "CAPTURAR PRECIO ",
+                              style: TextStyle(
+                                fontSize: 18, // Fuente más grande
+                                fontWeight: FontWeight.w900, // Peso extra negrita
+                                letterSpacing:
+                                    1.5, // Espaciado entre letras para legibilidad
+                              ),
+                            ),
+                          ),
+                        ),
+        const SizedBox(height: 10),
+                        if (_selectedPct != null) ...[
+                          Text(
+                              "Precio Final: \$ ${clpFormater.format(_finalPrice)}",
+                              style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green)),
+                          Text("Ahorro: \$${clpFormater.format(_savings)}",
+                              style: const TextStyle(
+                                  fontSize: 18, color: Colors.blueGrey)),
+                          const SizedBox(height: 5),
+                          ElevatedButton.icon(
+                              onPressed: () => _saveOffer(context),
+                              icon: const Icon(Icons.save),
+                              label: const Text("GUARDAR DESCUENTO")),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -409,7 +489,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildVisor(Size size) {
     return Center(
       child: Container(
-        height: size.height * 0.25,
+        height: size.height * 0.23,
         width: size.width * 0.9,
         decoration: BoxDecoration(
           color: Colors.white,
@@ -434,7 +514,27 @@ class _HomeScreenState extends State<HomeScreen> {
                   bottomLeft: Radius.circular(16),
                 ),
                 child: _isCameraReady
-                    ? CameraPreview(_cameraController!)
+                    ? Stack(
+                        // USAMOS UN STACK PARA SUPERPONER ELEMENTOS
+                        fit: StackFit.expand,
+                        children: [
+                          // CAPA 1: La vista de la cámara
+                          CameraPreview(_cameraController!),
+                          // CAPA 2: El overlay con el área de enfoque y el láser
+                          AnimatedBuilder(
+                            animation: _scanAnimationController,
+                            builder: (context, child) {
+                              return CustomPaint(
+                                painter: ScannerOverlayPainter(
+                                  isScanning: _isScanningAnim,
+                                  // Pasamos el valor normalizado de la animación (0.0 a 1.0)
+                                  scanValue: _scanAnimationController.value,
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      )
                     : Container(
                         color: Colors.blueGrey[900],
                         child: Column(
@@ -558,6 +658,15 @@ class _HomeScreenState extends State<HomeScreen> {
           int val = _porcentajes[index];
           return GestureDetector(
             onTap: () {
+              String cleanText = _priceController.text.replaceAll('.', '');
+              double? price = double.tryParse(cleanText);
+              if (price == null || price <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text(
+                        "Para aplicar el descuento, debes ingresar o escanear un precio"),
+                    backgroundColor: Colors.redAccent));
+                return;
+              }
               setState(() => _selectedPct = val);
               _calculate();
               _scrollToIndex(index, context);
@@ -611,7 +720,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // 2. Validación de presencia
     if (rawText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Ingresa un precio primero"),
+          content: Text("Ingresa o escanea un precio primero"),
           backgroundColor: Colors.redAccent));
       return;
     }
@@ -655,7 +764,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 children: [
                   Center(
-                      child: Text("EnCuantoQueda 1.0",
+                      child: Text("EnCuantoQueda 1.1",
                           style: TextStyle(color: Colors.white, fontSize: 24))),
                   SizedBox(height: 10),
                   Center(
@@ -1012,6 +1121,153 @@ class _PercentagesScreenState extends State<PercentagesScreen> {
                       },
                       child: const Text("OK")),
                 ]));
+  }
+}
+
+// --- CLASE AUXILIAR PARA DIBUJAR EL VISOR Y EL LÁSER ---
+// --- CLASE AUXILIAR PARA DIBUJAR EL VISOR Y EL LÁSER ---
+
+class ScannerOverlayPainter extends CustomPainter {
+  final bool isScanning;
+  final double scanValue;
+
+  ScannerOverlayPainter({required this.isScanning, required this.scanValue});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint();
+
+    // 1. Área de enfoque: Ahora usamos el 90% del alto disponible para que sea "completa"
+    final double focusWidth = size.width * 0.8;
+    final double focusHeight =
+        size.height * 0.9; // Ajuste para recorrido máximo
+    final double left = (size.width - focusWidth) / 2;
+    final double top = (size.height - focusHeight) / 2;
+
+    final focusRect = Rect.fromLTWH(left, top, focusWidth, focusHeight);
+
+    // 2. Fondo semitransparente (Overlay)
+    final backgroundPath = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+    final focusPath = Path()..addRect(focusRect);
+    final overlayPath =
+        Path.combine(PathOperation.difference, backgroundPath, focusPath);
+
+    paint.color = Colors.black.withOpacity(0.5);
+    canvas.drawPath(overlayPath, paint);
+
+    // 3. Marco del visor
+    final borderPaint = Paint()
+      ..color = Colors.white.withOpacity(0.8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(focusRect, const Radius.circular(12)),
+        borderPaint);
+
+    // 4. FIX DEL LÁSER: Recorrido total en el eje Y
+    if (isScanning) {
+      // El láser ahora recorre desde el píxel 0 al final del visor
+      final double currentY = size.height * scanValue;
+
+      final laserPaint = Paint()
+        ..color = Colors.redAccent
+        ..strokeWidth = 4.0
+        ..maskFilter =
+            const MaskFilter.blur(BlurStyle.normal, 3); // Efecto neón
+
+      canvas.drawLine(
+        Offset(0, currentY),
+        Offset(size.width, currentY),
+        laserPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant ScannerOverlayPainter oldDelegate) => true;
+}
+
+class ScannerOverlayPainter2 extends CustomPainter {
+  final bool isScanning;
+  final double scanValue;
+
+  ScannerOverlayPainter2({required this.isScanning, required this.scanValue});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint();
+
+    // 1. Definir el área de enfoque (rectángulo central)
+    // Hacemos que el área útil sea el 70% del ancho y 50% del alto del visor
+    final double focusWidth = size.width * 0.7;
+    final double focusHeight = size.height * 0.5;
+    final double left = (size.width - focusWidth) / 1;
+    final double top = (size.height - focusHeight) / 1;
+
+    final focusRect = Rect.fromLTWH(left, top, focusWidth, focusHeight);
+
+    // 2. Dibujar el fondo semitransparente con el "agujero" en el centro
+    // Usamos un path combinado para restar el rectángulo central al rectángulo total
+    final backgroundPath = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+    final focusPath = Path()..addRect(focusRect);
+
+    // La diferencia crea el agujero
+    final overlayPath = Path.combine(
+      PathOperation.difference,
+      backgroundPath,
+      focusPath,
+    );
+
+    paint.color = Colors.black.withOpacity(0.5); // Oscuridad del fondo
+    canvas.drawPath(overlayPath, paint);
+
+    // 3. Dibujar el borde del área de enfoque
+    final borderPaint = Paint()
+      ..color = Colors.white.withOpacity(0.8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    // Opcional: esquinas redondeadas para el marco de enfoque
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(focusRect, const Radius.circular(8)),
+        borderPaint);
+    // canvas.drawRect(focusRect, borderPaint); // Versión esquinas rectas
+
+    // 4. Dibujar el efecto LÁSER si se está escaneando
+    if (isScanning) {
+      final laserPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0;
+
+      // Gradiente rojo para que parezca un escáner real
+      final shader = const LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [Colors.transparent, Colors.redAccent, Colors.transparent],
+        stops: [0.1, 0.5, 0.9],
+      ).createShader(focusRect);
+
+      laserPaint.shader = shader;
+
+      // Calculamos la posición Y vertical basada en el valor de la animación
+      // La línea se mueve desde 'top' hasta 'top + focusHeight'
+      final double currentY = top + (focusHeight * scanValue);
+
+      // Dibujamos la línea horizontal dentro del área de enfoque
+      canvas.drawLine(
+        Offset(left, currentY),
+        Offset(left + focusWidth, currentY),
+        laserPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant ScannerOverlayPainter oldDelegate) {
+    // Solo repintar si cambia el estado de escaneo o la posición del láser
+    return oldDelegate.isScanning != isScanning ||
+        oldDelegate.scanValue != scanValue;
   }
 }
 
